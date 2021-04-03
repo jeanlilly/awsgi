@@ -70,6 +70,10 @@ class StartResponse(object):
     def use_gzip_response(self, headers, body):
         accept_encoding = headers.get('Accept-Encoding', "")
         content_type = headers.get('Content-Type')
+        print(accept_encoding)
+        print(content_type)
+        print(len(body))
+        print(body)
         return content_type in {
             "application/javascript",
             "application/json",
