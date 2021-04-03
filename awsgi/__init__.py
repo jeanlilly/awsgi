@@ -90,10 +90,12 @@ class StartResponse(object):
 
         is_gzip = self.use_gzip_response(headers, totalbody)
         is_b64 = self.use_binary_response(headers, totalbody)
-
+        print(f"IS_GZIP = {is_gzip}")
+        print(f"is_b64 = {is_b64}")
         if is_gzip:
             totalbody = gzip.compress(totalbody)
             headers["Content-Encoding"] = "gzip"
+            is_b64 = True
 
         if is_b64:
             converted_output = convert_b46(totalbody)
