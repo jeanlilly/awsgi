@@ -40,7 +40,7 @@ def convert_b46(s):
 
 
 class StartResponse(object):
-    def __init__(self, base64_content_types=None):
+    def __init__(self, base64_content_types=None, use_gzip=False):
         '''
         Args:
             base64_content_types (set): Set of HTTP Content-Types which should
@@ -50,6 +50,7 @@ class StartResponse(object):
         self.status = 500
         self.status_line = '500 Internal Server Error'
         self.headers = []
+        self.use_gzip = use_gzip
         self.chunks = collections.deque()
         self.base64_content_types = set(base64_content_types or []) or set()
 
@@ -68,13 +69,8 @@ class StartResponse(object):
 
 
     def use_gzip_response(self, headers, body):
-        accept_encoding = headers.get('accept-encoding', "")
         content_type = headers.get('Content-Type')
-        print(accept_encoding)
-        print(content_type)
-        print(len(body))
-        print(body)
-        return content_type in {
+        return self.use_gzip and content_type in {
             "application/javascript",
             "application/json",
             "text/css",
@@ -84,7 +80,7 @@ class StartResponse(object):
             "image/svg+xml",
             "font/otf",
             "font/ttf"
-        } and "gzip" in accept_encoding and len(body) > ONE_MTU_SIZE
+        } and len(body) > ONE_MTU_SIZE
 
 
     def build_body(self, headers, output):
@@ -177,6 +173,8 @@ def environ(event, context):
 
         if k == 'CONTENT_TYPE':
             environ['CONTENT_TYPE'] = v
+        elif k == 'ACCEPT_ENCODING':
+            environ['ACCEPT_ENCODING'] = v
         elif k == 'HOST':
             environ['SERVER_NAME'] = v
         elif k == 'X_FORWARDED_FOR':
@@ -202,7 +200,8 @@ def response(app, event, context, base64_content_types=None):
 
     environ, StartResponse = select_impl(event, context)
 
-    sr = StartResponse(base64_content_types=base64_content_types)
+    use_gzip = bool("gzip" in event.get("headers",{}).get('accept-encoding', ""))
+    sr = StartResponse(base64_content_types=base64_content_types, use_gzip=use_gzip)
     output = app(environ(event, context), sr)
     response = sr.response(output)
 
