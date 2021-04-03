@@ -2,6 +2,9 @@
 AWSGI
 =====
 
+Extended to support gzip
+
+
 A WSGI adapter for AWS API Gateway/Lambda Proxy Integration
 ===========================================================
 

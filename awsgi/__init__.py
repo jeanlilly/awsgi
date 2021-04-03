@@ -3,6 +3,10 @@ from io import BytesIO
 import itertools
 import collections
 import sys
+import gzip
+
+ONE_MTU_SIZE = 1400
+
 try:
     # Python 3
     from urllib.parse import urlencode
@@ -62,17 +66,30 @@ class StartResponse(object):
             content_type = content_type.split(';')[0]
         return content_type in self.base64_content_types
 
+
+    def use_gzip_response(self, headers, body):
+        accept_encoding = headers.get('Accept-Encoding', "")
+
+        return "gzip" in accept_encoding and len(body) > ONE_MTU_SIZE
+
+
     def build_body(self, headers, output):
         totalbody = b''.join(itertools.chain(
             self.chunks, output,
         ))
 
+        is_gzip = self.use_gzip_response(headers, totalbody)
         is_b64 = self.use_binary_response(headers, totalbody)
+
+        if is_gzip:
+            totalbody = gzip.compress(totalbody)
+            headers["Content-Encoding"] = "gzip"
 
         if is_b64:
             converted_output = convert_b46(totalbody)
         else:
             converted_output = convert_str(totalbody)
+
 
         return {
             'isBase64Encoded': is_b64,
@@ -166,8 +183,11 @@ def select_impl(event, context):
 
 
 def response(app, event, context, base64_content_types=None):
+
     environ, StartResponse = select_impl(event, context)
 
     sr = StartResponse(base64_content_types=base64_content_types)
     output = app(environ(event, context), sr)
-    return sr.response(output)
+    response = sr.response(output)
+
+    return response
