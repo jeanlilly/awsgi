@@ -69,8 +69,18 @@ class StartResponse(object):
 
     def use_gzip_response(self, headers, body):
         accept_encoding = headers.get('Accept-Encoding', "")
-
-        return "gzip" in accept_encoding and len(body) > ONE_MTU_SIZE
+        content_type = headers.get('Content-Type')
+        return content_type in {
+            "application/javascript",
+            "application/json",
+            "text/css",
+            "text/html",
+            "text/plain",
+            "text/html",
+            "image/svg+xml",
+            "font/otf",
+            "font/ttf"
+        } and "gzip" in accept_encoding and len(body) > ONE_MTU_SIZE
 
 
     def build_body(self, headers, output):
