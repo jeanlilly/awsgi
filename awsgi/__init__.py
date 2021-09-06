@@ -32,6 +32,11 @@ except ImportError:
         return b.encode('utf-8', errors='strict') if (
             isinstance(b, (str, unicode))) else b
 
+try:
+    service_version = open("./VERSION").read().strip()
+except Exception:
+    service_version = "undefined"
+
 __all__ = 'response',
 
 
@@ -49,7 +54,9 @@ class StartResponse(object):
         '''
         self.status = 500
         self.status_line = '500 Internal Server Error'
-        self.headers = []
+        self.headers = [
+            ("version", service_version)
+        ]
         self.use_gzip = use_gzip
         self.chunks = collections.deque()
         self.base64_content_types = set(base64_content_types or []) or set()
@@ -67,7 +74,6 @@ class StartResponse(object):
             content_type = content_type.split(';')[0]
         return content_type in self.base64_content_types
 
-
     def use_gzip_response(self, headers, body):
         content_type = headers.get('Content-Type')
         return self.use_gzip and content_type in {
@@ -81,7 +87,6 @@ class StartResponse(object):
             "font/otf",
             "font/ttf"
         } and len(body) > ONE_MTU_SIZE
-
 
     def build_body(self, headers, output):
         totalbody = b''.join(itertools.chain(
@@ -101,7 +106,6 @@ class StartResponse(object):
             converted_output = convert_b46(totalbody)
         else:
             converted_output = convert_str(totalbody)
-
 
         return {
             'isBase64Encoded': is_b64,
@@ -200,7 +204,7 @@ def response(app, event, context, base64_content_types=None):
 
     environ, StartResponse = select_impl(event, context)
 
-    use_gzip = bool("gzip" in event.get("headers",{}).get('accept-encoding', ""))
+    use_gzip = bool("gzip" in event.get("headers", {}).get('accept-encoding', ""))
     sr = StartResponse(base64_content_types=base64_content_types, use_gzip=use_gzip)
     output = app(environ(event, context), sr)
     response = sr.response(output)
