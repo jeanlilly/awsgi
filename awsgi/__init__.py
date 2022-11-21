@@ -40,7 +40,7 @@ except Exception:
 __all__ = 'response',
 
 
-def convert_b46(s):
+def convert_b64(s):
     return b64encode(s).decode('ascii')
 
 
@@ -103,7 +103,7 @@ class StartResponse(object):
             is_b64 = True
 
         if is_b64:
-            converted_output = convert_b46(totalbody)
+            converted_output = convert_b64(totalbody)
         else:
             converted_output = convert_str(totalbody)
 
