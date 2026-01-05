@@ -1,3 +1,4 @@
+from urllib.parse import urlencode, unquote
 from base64 import b64encode, b64decode
 from io import BytesIO
 import itertools
@@ -7,30 +8,19 @@ import gzip
 
 ONE_MTU_SIZE = 1400
 
-try:
-    # Python 3
-    from urllib.parse import urlencode
 
-    # Convert bytes to str, if required
-    def convert_str(s):
-        return s.decode('utf-8') if isinstance(s, bytes) else s
+def convert_str(s):
+    return s.decode('utf-8') if isinstance(s, bytes) else s
 
-    # Convert str to bytes, if required
-    def convert_byte(b):
-        return b.encode('utf-8', errors='strict') if (
-            isinstance(b, str)) else b
-except ImportError:
-    # Python 2
-    from urllib import urlencode
 
-    # No conversion required
-    def convert_str(s):
-        return s
+def convert_byte(b):
+    return b.encode('utf-8', errors='strict') if (
+        isinstance(b, str)) else b
 
-    # Convert str to bytes, if required
-    def convert_byte(b):
-        return b.encode('utf-8', errors='strict') if (
-            isinstance(b, (str, unicode))) else b
+
+def convert_b64(s):
+    return b64encode(s).decode('ascii')
+
 
 try:
     service_version = open("./VERSION").read().strip()
@@ -38,10 +28,6 @@ except Exception:
     service_version = "undefined"
 
 __all__ = 'response',
-
-
-def convert_b64(s):
-    return b64encode(s).decode('ascii')
 
 
 class StartResponse(object):
@@ -96,7 +82,6 @@ class StartResponse(object):
         is_gzip = self.use_gzip_response(headers, totalbody)
         is_b64 = self.use_binary_response(headers, totalbody)
         print(f"IS_GZIP = {is_gzip}")
-        print(f"is_b64 = {is_b64}")
         if is_gzip:
             totalbody = gzip.compress(totalbody)
             headers["Content-Encoding"] = "gzip"
@@ -140,6 +125,69 @@ class StartResponse_ELB(StartResponse):
         rv['statusDescription'] = self.status_line
 
         return rv
+
+
+def environ_v2(event, context):
+    """Prepare the WSGI environment from the Lambda event+context"""
+    # Check if format version is in v2, used for determining where to retrieve http method and path
+    is_v2 = "2.0" in event.get("version", {})
+
+    body = event.get("body", "") or ""  # Outside things can set the value to None
+
+    if event.get("isBase64Encoded", False):
+        body = b64decode(body)
+
+    # FIXME: Flag the encoding in the headers <- this is old note, IDK what it is supposed to mean
+    body = convert_byte(body)
+
+    # Use get() to access queryStringParameter field without throwing error if it doesn't exist
+    query_string = event.get("queryStringParameters", {}) or {}  # Outside things can set the value to None
+    if "multiValueQueryStringParameters" in event and event["multiValueQueryStringParameters"]:
+        query_string = []
+        for key in event["multiValueQueryStringParameters"]:
+            for value in event["multiValueQueryStringParameters"][key]:
+                query_string.append((key, value))
+
+    use_environ = {
+        # Get http method from within requestContext.http field in V2 format
+        "REQUEST_METHOD": event["requestContext"]["http"]["method"] if is_v2 else event["httpMethod"],
+        "SCRIPT_NAME": "",
+        "SERVER_NAME": "",
+        "SERVER_PORT": "",
+        "PATH_INFO": unquote(event["requestContext"]["http"]["path"] if is_v2 else event["path"]),
+        "QUERY_STRING": urlencode(query_string),
+        "REMOTE_ADDR": "127.0.0.1",
+        "CONTENT_LENGTH": str(len(body)),
+        "HTTP": "on",
+        "SERVER_PROTOCOL": "HTTP/1.1",
+        "wsgi.version": (1, 0),
+        "wsgi.input": BytesIO(body),
+        "wsgi.errors": sys.stderr,  # PONDER: is there a smarter stream we can use ? some logging facility ?
+        "wsgi.multithread": False,
+        "wsgi.multiprocess": False,
+        "wsgi.run_once": False,
+        "wsgi.url_scheme": "",
+        "awsgi.event": event,
+        "awsgi.context": context,
+    }
+    headers = event.get("headers", {}) or {}  # Outside things can set the value to None
+    for key, val in headers.items():
+        key = key.upper().replace("-", "_")
+
+        if key == "CONTENT_TYPE":
+            use_environ["CONTENT_TYPE"] = val
+        elif key == "HOST":
+            use_environ["SERVER_NAME"] = val
+        elif key == "X_FORWARDED_FOR":
+            use_environ["REMOTE_ADDR"] = val.split(", ")[0]
+        elif key == "X_FORWARDED_PROTO":
+            use_environ["wsgi.url_scheme"] = val
+        elif key == "X_FORWARDED_PORT":
+            use_environ["SERVER_PORT"] = val
+
+        use_environ["HTTP_" + key] = val
+
+    return use_environ
 
 
 def environ(event, context):
@@ -195,9 +243,9 @@ def environ(event, context):
 
 def select_impl(event, context):
     if 'elb' in event.get('requestContext', {}):
-        return environ, StartResponse_ELB
+        return environ_v2, StartResponse_ELB
     else:
-        return environ, StartResponse_GW
+        return environ_v2, StartResponse_GW
 
 
 def response(app, event, context, base64_content_types=None):
