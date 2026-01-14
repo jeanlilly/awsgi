@@ -148,13 +148,19 @@ def environ_v2(event, context):
             for value in event["multiValueQueryStringParameters"][key]:
                 query_string.append((key, value))
 
+    path = unquote(event["requestContext"]["http"]["path"] if is_v2 else event["path"])
+    if is_v2:
+        stage = event["requestContext"].get("stage", "")
+        if stage and path.startswith(f"/{stage}/"):
+            path = path[len(stage) + 1:]
+    
     use_environ = {
         # Get http method from within requestContext.http field in V2 format
         "REQUEST_METHOD": event["requestContext"]["http"]["method"] if is_v2 else event["httpMethod"],
         "SCRIPT_NAME": "",
         "SERVER_NAME": "",
         "SERVER_PORT": "",
-        "PATH_INFO": unquote(event["requestContext"]["http"]["path"] if is_v2 else event["path"]),
+        "PATH_INFO": path,
         "QUERY_STRING": urlencode(query_string),
         "REMOTE_ADDR": "127.0.0.1",
         "CONTENT_LENGTH": str(len(body)),
